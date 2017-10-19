@@ -1,28 +1,34 @@
+export GaussianNB
+
 # X: Feature vector as a p x n matrix
 # c: Vector of classes
 # k: Number of distinct classes
+import Distributions
+import ScikitLearnBase
 
-# abstract BernoulliNaiveBayes
-# abstract MultinomialNaiveBayes
+type GaussianNB
+    # The model hyperparameters (not learned from data)
+    bias::Float64
 
-# Implement alternative form for sparse matrices
-
-# Use macros to make more generic, while getting high speed code
-
-using Distributions
-
-immutable GaussianNaiveBayes <: Distribution
-	mu::Matrix{Float64} # Matrix of cluster centers: p x k
-	sigma::Matrix{Float64} # Diagonals of covariance matrices for each class
-	# Sigma is p x k: Sigma[d, c] is variance of dimension d for class c
+    # The parameters learned from data
+    mu::Matrix{Float64} # Matrix of cluster centers: p x k
+    sigma::Matrix{Float64} # Diagonals of covariance matrices for each class
 	p::Vector{Float64} # Vector of probabilities for each class
-	drawtable::Distributions.DiscreteDistributionTable
-	function GaussianNaiveBayes(mu::Matrix, sigma::Matrix, p::Vector)
-		new(mu, sigma, p, Distributions.DiscreteDistributionTable(p))
-	end
+	counts::Matrix{Int}  
+ 
+    # A constructor that accepts the hyperparameters as keyword arguments
+    # with sensible defaults
+    GaussianNB(; bias=0.0f0) = new(bias)
 end
 
-function Distributions.rand(d::GaussianNaiveBayes)
+# This will define `clone`, `set_params!` and `get_params` for the model
+ScikitLearnBase.@declare_hyperparameters(GaussianNB, [:bias])
+
+# GaussianNB is a classifier
+ScikitLearnBase.is_classifier(::GaussianNB) = true   # not required for transformers
+
+
+function Distributions.rand(d::GaussianNB)
 	p = size(d.mu, 1)
 	c = Distributions.draw(d.drawtable)
 	x = Array(Float64, p)
@@ -32,7 +38,7 @@ function Distributions.rand(d::GaussianNaiveBayes)
 	x, c
 end
 
-function Distributions.rand(d::GaussianNaiveBayes, n::Integer)
+function Distributions.rand(d::GaussianNB, n::Integer)
 	p = size(d.mu, 1)
 	X = Array(Float64, p, n)
 	c = Array(Int, n)
@@ -46,7 +52,7 @@ function Distributions.rand(d::GaussianNaiveBayes, n::Integer)
 	X, c
 end
 
-function Distributions.mean(d::GaussianNaiveBayes)
+function Distributions.mean(d::GaussianNB)
 	p, c = size(d.mu)
 	mx = zeros(Float64, p)
 	for cl in 1:c
@@ -60,29 +66,28 @@ function Distributions.mean(d::GaussianNaiveBayes)
 	mx, mc
 end
 
-function Distributions.fit(::Type{GaussianNaiveBayes}, X::Matrix, c::Vector)
+
+function ScikitLearnBase.fit!(model::GaussianNB, X::Matrix, c::Vector)
 	p, n = size(X)
-	nclasses = max(c)
-	mu = zeros(Float64, p, nclasses)
-	sigma = zeros(Float64, p, nclasses)
-	counts = zeros(Int, nclasses)
+	nclasses = maximum(c)
+	
 	for i in 1:n
-		mu[:, c[i]] += X[:, i]
-		counts[c[i]] += 1
+		model.mu[:, c[i]] += X[:, i]
+		model.counts[c[i]] += 1
 	end
 	for cl in 1:nclasses
-		mu[:, cl] /= counts[cl]
+		model.mu[:, cl] /= model.counts[cl]
 	end
 	for i in 1:n
-		sigma[:, c[i]] += (X[:, i] - mu[:, c[i]]).^2
+		model.sigma[:, c[i]] += (X[:, i] - model.mu[:, c[i]]).^2
 	end
 	for cl in 1:nclasses
-		sigma[:, cl] = sqrt(sigma[:, cl] / (counts[cl] - 1)) + 1e-8
+		model.sigma[:, cl] = sqrt(model.sigma[:, cl] / (model.counts[cl] - 1)) + 1e-8
 	end
-	return GaussianNaiveBayes(mu, sigma, counts / n)
+	return model
 end
 
-function Distributions.logpdf(d::GaussianNaiveBayes, x::Vector, c::Real)
+function Distributions.logpdf(d::GaussianNB, x::Vector, c::Real)
 	p = length(x)
 	res = log(d.p[c])
 	for dim in 1:p
@@ -91,7 +96,7 @@ function Distributions.logpdf(d::GaussianNaiveBayes, x::Vector, c::Real)
 	return res
 end
 
-function Distributions.logpdf(d::GaussianNaiveBayes, X::Matrix, c::Vector)
+function Distributions.logpdf(d::GaussianNB, X::Matrix, c::Vector)
 	p, n = size(X)
 	res = zeros(Float64, n)
 	for obs in 1:n
@@ -105,7 +110,7 @@ function Distributions.logpdf(d::GaussianNaiveBayes, X::Matrix, c::Vector)
 	return res
 end
 
-function Distributions.loglikelihood(d::GaussianNaiveBayes, X::Matrix, c::Vector)
+function Distributions.loglikelihood(d::GaussianNB, X::Matrix, c::Vector)
 	p, n = size(X)
 	res = 0.0
 	for obs in 1:n
@@ -114,7 +119,7 @@ function Distributions.loglikelihood(d::GaussianNaiveBayes, X::Matrix, c::Vector
 	return res
 end
 
-function predict(d::GaussianNaiveBayes, X::Matrix)
+function ScikitLearnBase.predict(d::GaussianNB, X::Matrix)
 	nclasses = length(d.p)
 	p, n = size(X)
 	res = Array(Int, n)
