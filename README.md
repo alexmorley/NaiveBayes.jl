@@ -1,10 +1,6 @@
 NaiveBayes.jl
 =============
 
-# NOTICE
-
-**This package is unmaintained. Its reliability is not guaranteed.**
-
 # Introduction
 
 The Gaussian Naive Bayes model:
